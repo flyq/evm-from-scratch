@@ -12,7 +12,6 @@
  * gave up and switched to JavaScript, Python, or Go. If you are new
  * to Rust, implement EVM in another programming language first.
  */
-
 use evm::evm;
 use primitive_types::U256;
 use serde::Deserialize;
@@ -39,9 +38,8 @@ struct Expect {
     // ret: Option<String>,
 }
 
-
 fn main() {
-    let text = std::fs::read_to_string("../evm.json").unwrap();
+    let text = std::fs::read_to_string("./evm.json").unwrap();
     let data: Vec<Evmtest> = serde_json::from_str(&text).unwrap();
 
     let total = data.len();
@@ -69,7 +67,7 @@ fn main() {
                 }
             }
         }
-        
+
         matching = matching && result.success == test.expect.success;
 
         if !matching {
@@ -81,7 +79,7 @@ fn main() {
                 println!("  {:#X},", v);
             }
             println!("]\n");
-            
+
             println!("Actual success: {:?}", result.success);
             println!("Actual stack: [");
             for v in result.stack {
