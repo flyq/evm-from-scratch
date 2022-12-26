@@ -1,3 +1,4 @@
+use evm::evm;
 /**
  * EVM From Scratch
  * Rust template
@@ -12,7 +13,6 @@
  * gave up and switched to JavaScript, Python, or Go. If you are new
  * to Rust, implement EVM in another programming language first.
  */
-use evm::evm;
 use primitive_types::U256;
 use serde::Deserialize;
 
@@ -22,6 +22,8 @@ struct Evmtest {
     hint: String,
     code: Code,
     expect: Expect,
+    tx: Option<Tx>,
+    block: Option<Block>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -36,6 +38,27 @@ struct Expect {
     success: bool,
     // #[serde(rename = "return")]
     // ret: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Tx {
+    from: Option<String>,
+    to: Option<String>,
+    origin: Option<String>,
+    gasprice: Option<String>,
+    value: Option<String>,
+    data: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Block {
+    basefee: Option<String>,
+    coinbase: Option<String>,
+    timestamp: Option<String>,
+    number: Option<String>,
+    difficulty: Option<String>,
+    gaslimit: Option<String>,
+    chainid: Option<String>,
 }
 
 fn main() {
