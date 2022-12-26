@@ -1,7 +1,11 @@
-use std::collections::VecDeque;
+use std::{
+    collections::{HashMap, VecDeque},
+    str::FromStr,
+};
 
 use ethers_core::types::I256;
-use primitive_types::U256;
+use primitive_types::{H160, U256};
+use serde::Deserialize;
 use sha3::{Digest, Keccak256};
 
 mod valids;
@@ -11,26 +15,48 @@ pub struct EvmResult {
     pub success: bool,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct Code {
+    pub asm: Option<String>,
+    pub bin: String,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
 pub struct Tx {
-    from: String,
-    to: String,
-    origin: String,
-    gasprice: String,
-    value: String,
-    data: String,
+    pub from: Option<String>,
+    pub to: Option<String>,
+    pub origin: Option<String>,
+    pub gasprice: Option<String>,
+    pub value: Option<String>,
+    pub data: Option<String>,
 }
 
+#[derive(Debug, Deserialize, Clone)]
 pub struct Block {
-    basefee: String,
-    coinbase: String,
-    timestamp: String,
-    number: String,
-    difficulty: String,
-    gaslimit: String,
-    chainid: String,
+    pub basefee: Option<String>,
+    pub coinbase: Option<String>,
+    pub timestamp: Option<String>,
+    pub number: Option<String>,
+    pub difficulty: Option<String>,
+    pub gaslimit: Option<String>,
+    pub chainid: Option<String>,
 }
 
-pub fn evm(_code: impl AsRef<[u8]>) -> EvmResult {
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct State(HashMap<String, Account>);
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Account {
+    pub balance: Option<String>,
+    pub code: Option<Code>,
+}
+
+pub fn evm(
+    _code: impl AsRef<[u8]>,
+    _tx: Option<Tx>,
+    _block: Option<Block>,
+    _state: Option<State>,
+) -> EvmResult {
     let mut stack: VecDeque<U256> = VecDeque::new();
     let mut memory: Vec<u8> = vec![0; 32 * 64];
     let mut mem_ptr: usize = 0;
@@ -288,7 +314,191 @@ pub fn evm(_code: impl AsRef<[u8]>) -> EvmResult {
                 stack.push_front(U256::from(Keccak256::digest(val).as_slice()));
             }
             // ADDRESS
-            0x30 => {}
+            0x30 => {
+                let to =
+                    hex::decode(_tx.clone().unwrap().to.unwrap().trim_start_matches("0x")).unwrap();
+                let mut val: [u8; 32] = [0; 32];
+                val[32 - to.len()..].copy_from_slice(&to);
+                stack.push_front(val.into());
+            }
+            // BALANCE
+            0x31 => {
+                let pop_val = pop_one(&mut stack);
+                let mut bytes: [u8; 32] = [0; 32];
+                pop_val.to_big_endian(&mut bytes);
+
+                let mut addr: [u8; 20] = [0; 20];
+                addr.copy_from_slice(&bytes[12..]);
+                let address = format!("{:?}", H160::from(addr));
+
+                println!("{:?}", address);
+
+                let balance = _state
+                    .clone()
+                    .unwrap_or_default()
+                    .0
+                    .get(&format!("{}", address))
+                    .unwrap_or(&Account {
+                        balance: Some("0x0".to_string()),
+                        code: None,
+                    })
+                    .balance
+                    .clone();
+
+                stack.push_front(U256::from_str(&balance.unwrap()).unwrap());
+            }
+            // ORIGIN
+            0x32 => {
+                let origin = hex::decode(
+                    _tx.clone()
+                        .unwrap()
+                        .origin
+                        .unwrap()
+                        .trim_start_matches("0x"),
+                )
+                .unwrap();
+                let mut val: [u8; 32] = [0; 32];
+                val[32 - origin.len()..].copy_from_slice(&origin);
+                stack.push_front(val.into());
+            }
+            // CALLER
+            0x33 => {
+                let from = hex::decode(_tx.clone().unwrap().from.unwrap().trim_start_matches("0x"))
+                    .unwrap();
+                let mut val: [u8; 32] = [0; 32];
+                val[32 - from.len()..].copy_from_slice(&from);
+                stack.push_front(val.into());
+            }
+            // CALLVALUE
+            0x34 => {
+                let call_value = U256::from_str(&_tx.clone().unwrap().value.unwrap()).unwrap();
+
+                stack.push_front(call_value);
+            }
+            // CALLDATALOAD
+            0x35 => {
+                let offset = pop_one(&mut stack).as_usize();
+                let data = hex::decode(_tx.clone().unwrap().data.unwrap().trim_start_matches("0x"))
+                    .unwrap();
+                let mut val: [u8; 32] = [0; 32];
+                if offset >= data.len() {
+                    stack.push_front(U256::zero());
+                } else {
+                    val[0..data.len() - offset].copy_from_slice(&data[offset..]);
+                    stack.push_front(U256::from(val));
+                }
+            }
+            // CALLDATASIZE
+            0x36 => {
+                let data = hex::decode(
+                    _tx.clone()
+                        .unwrap_or_default()
+                        .data
+                        .unwrap_or("0x".to_string())
+                        .trim_start_matches("0x"),
+                )
+                .unwrap();
+                stack.push_front(data.len().into());
+            }
+            // GASPRICE
+            0x3a => {
+                let gas_price = u64::from_str_radix(
+                    _tx.clone()
+                        .unwrap()
+                        .gasprice
+                        .unwrap()
+                        .trim_start_matches("0x"),
+                    16,
+                )
+                .unwrap();
+
+                stack.push_front(gas_price.into());
+            }
+            // BLOCKHASH
+            0x40 => {
+                // Not used in this test suite, can return 0
+            }
+            // COINBASE
+            0x41 => {
+                let gas_price = u64::from_str_radix(
+                    _block
+                        .clone()
+                        .unwrap()
+                        .coinbase
+                        .unwrap()
+                        .trim_start_matches("0x"),
+                    16,
+                )
+                .unwrap();
+
+                stack.push_front(gas_price.into());
+            }
+            // TIMESTAMP
+            0x42 => {
+                let timestamp = u64::from_str_radix(
+                    _block
+                        .clone()
+                        .unwrap()
+                        .timestamp
+                        .unwrap()
+                        .trim_start_matches("0x"),
+                    16,
+                )
+                .unwrap();
+
+                stack.push_front(timestamp.into());
+            }
+            // NUMBER
+            0x43 => {
+                let block_num = u64::from_str_radix(
+                    _block
+                        .clone()
+                        .unwrap()
+                        .number
+                        .unwrap()
+                        .trim_start_matches("0x"),
+                    16,
+                )
+                .unwrap();
+
+                stack.push_front(block_num.into());
+            }
+            // DIFFICULTY
+            0x44 => {
+                let difficulty =
+                    U256::from_str(&_block.clone().unwrap().difficulty.unwrap()).unwrap();
+
+                stack.push_front(difficulty);
+            }
+            // GASLIMIT
+            0x45 => {
+                let gas_limit = U256::from_str(&_block.clone().unwrap().gaslimit.unwrap()).unwrap();
+
+                stack.push_front(gas_limit);
+            }
+            // CHAINID
+            0x46 => {
+                let chain_id = U256::from_str(&_block.clone().unwrap().chainid.unwrap()).unwrap();
+
+                stack.push_front(chain_id);
+            }
+
+            // BASEFEE
+            0x48 => {
+                let base_fee = u64::from_str_radix(
+                    _block
+                        .clone()
+                        .unwrap()
+                        .basefee
+                        .unwrap()
+                        .trim_start_matches("0x"),
+                    16,
+                )
+                .unwrap();
+
+                stack.push_front(base_fee.into());
+            }
+
             // POP
             0x50 => {
                 pop_one(&mut stack);

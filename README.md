@@ -2,7 +2,9 @@
 
 ![EVM From Scratch](.github/logo.png)
 
-Welcome to a **EVM From Scratch** fork! It is only implemented for Rust, refer to the opcode implementation of https://github.com/rust-blockchain/evm
+Welcome to a **EVM From Scratch** fork! It is only implemented for Rust, refer to https://www.evm.codes/ and https://github.com/rust-blockchain/evm.
+
+If you want other language's template, see: https://github.com/w1nt3r-eth/evm-from-scratch
 
 ## Getting Started
 

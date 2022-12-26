@@ -1,4 +1,4 @@
-use evm::evm;
+use evm::{evm, Block, Code, State, Tx};
 /**
  * EVM From Scratch
  * Rust template
@@ -24,12 +24,7 @@ struct Evmtest {
     expect: Expect,
     tx: Option<Tx>,
     block: Option<Block>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Code {
-    asm: String,
-    bin: String,
+    state: Option<State>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -40,39 +35,18 @@ struct Expect {
     // ret: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct Tx {
-    from: Option<String>,
-    to: Option<String>,
-    origin: Option<String>,
-    gasprice: Option<String>,
-    value: Option<String>,
-    data: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Block {
-    basefee: Option<String>,
-    coinbase: Option<String>,
-    timestamp: Option<String>,
-    number: Option<String>,
-    difficulty: Option<String>,
-    gaslimit: Option<String>,
-    chainid: Option<String>,
-}
-
 fn main() {
     let text = std::fs::read_to_string("./evm.json").unwrap();
     let data: Vec<Evmtest> = serde_json::from_str(&text).unwrap();
 
     let total = data.len();
 
-    for (index, test) in data.iter().enumerate() {
+    for (index, test) in data.into_iter().enumerate() {
         println!("Test {} of {}: {}", index + 1, total, test.name);
 
         let code: Vec<u8> = hex::decode(&test.code.bin).unwrap();
 
-        let result = evm(&code);
+        let result = evm(&code, test.tx, test.block, test.state);
 
         let mut expected_stack: Vec<U256> = Vec::new();
         if let Some(ref stacks) = test.expect.stack {
@@ -94,7 +68,7 @@ fn main() {
         matching = matching && result.success == test.expect.success;
 
         if !matching {
-            println!("Instructions: \n{}\n", test.code.asm);
+            println!("Instructions: \n{}\n", test.code.asm.unwrap());
 
             println!("Expected success: {:?}", test.expect.success);
             println!("Expected stack: [");
