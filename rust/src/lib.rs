@@ -60,6 +60,7 @@ pub fn evm(
     let mut stack: VecDeque<U256> = VecDeque::new();
     let mut memory: Vec<u8> = vec![0; 32 * 64];
     let mut mem_ptr: usize = 0;
+    let mut storage: HashMap<U256, U256> = HashMap::new();
     let mut success: Option<bool> = None;
     let mut pc = 0;
 
@@ -331,8 +332,6 @@ pub fn evm(
                 addr.copy_from_slice(&bytes[12..]);
                 let address = format!("{:?}", H160::from(addr));
 
-                println!("{:?}", address);
-
                 let balance = _state
                     .clone()
                     .unwrap_or_default()
@@ -400,6 +399,44 @@ pub fn evm(
                 .unwrap();
                 stack.push_front(data.len().into());
             }
+            // CALLDATACOPY
+            0x37 => {
+                let (dest_offset, offset, size) = pop_three(&mut stack);
+                if size.is_zero() {
+                    break;
+                } else {
+                    let data = hex::decode(
+                        _tx.clone()
+                            .unwrap_or_default()
+                            .data
+                            .unwrap_or("0x".to_string())
+                            .trim_start_matches("0x"),
+                    )
+                    .unwrap();
+                    let dest_offset = dest_offset.as_usize();
+                    let offset = offset.as_usize();
+                    let size = size.as_usize();
+                    memory[dest_offset..dest_offset + size]
+                        .copy_from_slice(&data[offset..offset + size]);
+                }
+            }
+            // CODESIZE
+            0x38 => {
+                stack.push_front(code.len().into());
+            }
+            // CODECOPY
+            0x39 => {
+                let (dest_offset, offset, size) = pop_three(&mut stack);
+                if size.is_zero() {
+                    break;
+                } else {
+                    let dest_offset = dest_offset.as_usize();
+                    let offset = offset.as_usize();
+                    let size = size.as_usize().min(code.len() - offset);
+                    memory[dest_offset..dest_offset + size]
+                        .copy_from_slice(&code[offset..offset + size]);
+                }
+            }
             // GASPRICE
             0x3a => {
                 let gas_price = u64::from_str_radix(
@@ -413,6 +450,96 @@ pub fn evm(
                 .unwrap();
 
                 stack.push_front(gas_price.into());
+            }
+            // EXTCODESIZE
+            0x3b => {
+                let pop_val = pop_one(&mut stack);
+                let mut bytes: [u8; 32] = [0; 32];
+                pop_val.to_big_endian(&mut bytes);
+
+                let mut addr: [u8; 20] = [0; 20];
+                addr.copy_from_slice(&bytes[12..]);
+                let address = format!("{:?}", H160::from(addr));
+
+                let code = _state
+                    .clone()
+                    .unwrap_or_default()
+                    .0
+                    .get(&format!("{}", address))
+                    .unwrap_or(&Account {
+                        balance: Some("0x0".to_string()),
+                        code: None,
+                    })
+                    .code
+                    .clone();
+                match code {
+                    None => stack.push_front(U256::zero()),
+                    Some(c) => stack.push_front((c.bin.len() / 2).into()),
+                }
+            }
+            // EXTCODECOPY
+            0x3c => {
+                let (addr, dest_offset, offset, size) = pop_four(&mut stack);
+                if size.is_zero() {
+                    break;
+                } else {
+                    let mut bytes: [u8; 32] = [0; 32];
+                    addr.to_big_endian(&mut bytes);
+
+                    let mut addr_bytes: [u8; 20] = [0; 20];
+                    addr_bytes.copy_from_slice(&bytes[12..]);
+                    let address = format!("{:?}", H160::from(addr_bytes));
+
+                    let code = _state
+                        .clone()
+                        .unwrap_or_default()
+                        .0
+                        .get(&format!("{}", address))
+                        .unwrap_or(&Account {
+                            balance: Some("0x0".to_string()),
+                            code: None,
+                        })
+                        .code
+                        .clone();
+                    if let Some(code) = code {
+                        let code = hex::decode(code.bin).unwrap();
+
+                        let dest_offset = dest_offset.as_usize();
+                        let offset = offset.as_usize();
+                        let size = size.as_usize().min(code.len() - offset);
+                        memory[dest_offset..dest_offset + size]
+                            .copy_from_slice(&code[offset..offset + size]);
+                    }
+                }
+            }
+            // EXTCODEHASH
+            0x3f => {
+                let pop_val = pop_one(&mut stack);
+                let mut bytes: [u8; 32] = [0; 32];
+                pop_val.to_big_endian(&mut bytes);
+
+                let mut addr: [u8; 20] = [0; 20];
+                addr.copy_from_slice(&bytes[12..]);
+                let address = format!("{:?}", H160::from(addr));
+
+                let account = _state
+                    .clone()
+                    .unwrap_or_default()
+                    .0
+                    .get(&format!("{}", address))
+                    .cloned();
+
+                if account.is_none() {
+                    stack.push_front(U256::zero())
+                } else {
+                    let code = account.unwrap().code;
+                    if code.is_none() {
+                        stack.push_front(U256::from(Keccak256::digest([]).as_slice()));
+                    } else {
+                        let code = hex::decode(code.unwrap().bin).unwrap();
+                        stack.push_front(U256::from(Keccak256::digest(code).as_slice()));
+                    }
+                }
             }
             // BLOCKHASH
             0x40 => {
@@ -482,7 +609,23 @@ pub fn evm(
 
                 stack.push_front(chain_id);
             }
+            // SELFBALANCE
+            0x47 => {
+                let to = _tx.clone().unwrap().to.unwrap();
+                let balance = _state
+                    .clone()
+                    .unwrap_or_default()
+                    .0
+                    .get(&to)
+                    .unwrap_or(&Account {
+                        balance: Some("0x0".to_string()),
+                        code: None,
+                    })
+                    .balance
+                    .clone();
 
+                stack.push_front(U256::from_str(&balance.unwrap()).unwrap());
+            }
             // BASEFEE
             0x48 => {
                 let base_fee = u64::from_str_radix(
@@ -541,6 +684,16 @@ pub fn evm(
 
                 memory[offset] = bytes[31];
                 mem_ptr = mem_ptr.max(offset + 1);
+            }
+            // SLOAD
+            0x54 => {
+                let key = pop_one(&mut stack);
+                stack.push_front(storage.get(&key).cloned().unwrap_or_default())
+            }
+            // SSTORE
+            0x55 => {
+                let (key, val) = pop_two(&mut stack);
+                storage.insert(key, val);
             }
             // JUMP
             0x56 => {
@@ -610,6 +763,8 @@ pub fn evm(
                 stack.swap(0, index)
             }
 
+            // LOG*
+
             // INVALID
             0xfe => {
                 success = Some(false);
@@ -618,10 +773,6 @@ pub fn evm(
             _ => {
                 panic!();
             }
-        }
-
-        if opcode == 0x00 {
-            break;
         }
     }
 
@@ -646,4 +797,12 @@ fn pop_three(stack: &mut VecDeque<U256>) -> (U256, U256, U256) {
     let b = stack.pop_front().expect("error: stack less than 2 values");
     let c = stack.pop_front().expect("error: stack less than 3 values");
     (a, b, c)
+}
+
+fn pop_four(stack: &mut VecDeque<U256>) -> (U256, U256, U256, U256) {
+    let a = stack.pop_front().expect("error: stack less than 1 values");
+    let b = stack.pop_front().expect("error: stack less than 2 values");
+    let c = stack.pop_front().expect("error: stack less than 3 values");
+    let d = stack.pop_front().expect("error: stack less than 3 values");
+    (a, b, c, d)
 }
