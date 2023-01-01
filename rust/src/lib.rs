@@ -336,7 +336,7 @@ pub fn evm(
                     .clone()
                     .unwrap_or_default()
                     .0
-                    .get(&format!("{}", address))
+                    .get(&address.to_string())
                     .unwrap_or(&Account {
                         balance: Some("0x0".to_string()),
                         code: None,
@@ -393,7 +393,7 @@ pub fn evm(
                     _tx.clone()
                         .unwrap_or_default()
                         .data
-                        .unwrap_or("0x".to_string())
+                        .unwrap_or_else(|| "0x".to_string())
                         .trim_start_matches("0x"),
                 )
                 .unwrap();
@@ -409,7 +409,7 @@ pub fn evm(
                         _tx.clone()
                             .unwrap_or_default()
                             .data
-                            .unwrap_or("0x".to_string())
+                            .unwrap_or_else(|| "0x".to_string())
                             .trim_start_matches("0x"),
                     )
                     .unwrap();
@@ -465,7 +465,7 @@ pub fn evm(
                     .clone()
                     .unwrap_or_default()
                     .0
-                    .get(&format!("{}", address))
+                    .get(&address.to_string())
                     .unwrap_or(&Account {
                         balance: Some("0x0".to_string()),
                         code: None,
@@ -494,7 +494,7 @@ pub fn evm(
                         .clone()
                         .unwrap_or_default()
                         .0
-                        .get(&format!("{}", address))
+                        .get(&address.to_string())
                         .unwrap_or(&Account {
                             balance: Some("0x0".to_string()),
                             code: None,
@@ -526,19 +526,19 @@ pub fn evm(
                     .clone()
                     .unwrap_or_default()
                     .0
-                    .get(&format!("{}", address))
+                    .get(&address.to_string())
                     .cloned();
 
-                if account.is_none() {
-                    stack.push_front(U256::zero())
-                } else {
-                    let code = account.unwrap().code;
-                    if code.is_none() {
-                        stack.push_front(U256::from(Keccak256::digest([]).as_slice()));
-                    } else {
-                        let code = hex::decode(code.unwrap().bin).unwrap();
+                if let Some(account) = account {
+                    let code = account.code;
+                    if let Some(code) = code {
+                        let code = hex::decode(code.bin).unwrap();
                         stack.push_front(U256::from(Keccak256::digest(code).as_slice()));
+                    } else {
+                        stack.push_front(U256::from(Keccak256::digest([]).as_slice()));
                     }
+                } else {
+                    stack.push_front(U256::zero())
                 }
             }
             // BLOCKHASH
@@ -776,10 +776,10 @@ pub fn evm(
         }
     }
 
-    return EvmResult {
+    EvmResult {
         stack: stack.into(),
         success: success.unwrap_or(true),
-    };
+    }
 }
 
 fn pop_one(stack: &mut VecDeque<U256>) -> U256 {

@@ -46,7 +46,7 @@ fn main() {
 
         let code: Vec<u8> = hex::decode(&test.code.bin).unwrap();
 
-        let result = evm(&code, test.tx, test.block, test.state);
+        let result = evm(code, test.tx, test.block, test.state);
 
         let mut expected_stack: Vec<U256> = Vec::new();
         if let Some(ref stacks) = test.expect.stack {
@@ -57,8 +57,8 @@ fn main() {
 
         let mut matching = result.stack.len() == expected_stack.len();
         if matching {
-            for i in 0..result.stack.len() {
-                if result.stack[i] != expected_stack[i] {
+            for (i, item) in expected_stack.iter().enumerate().take(result.stack.len()) {
+                if result.stack[i] != *item {
                     matching = false;
                     break;
                 }
