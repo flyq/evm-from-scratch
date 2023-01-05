@@ -13,6 +13,7 @@ mod valids;
 pub struct EvmResult {
     pub stack: Vec<U256>,
     pub success: bool,
+    pub ret: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -63,6 +64,7 @@ pub fn evm(
     let mut storage: HashMap<U256, U256> = HashMap::new();
     let mut success: Option<bool> = None;
     let mut pc = 0;
+    let mut ret = None;
 
     let code = _code.as_ref();
 
@@ -765,6 +767,29 @@ pub fn evm(
 
             // LOG*
 
+            // CALL
+            0xf1 => {
+                let (gas, addr, val, args_offset, args_size, ret_offset, ret_size) =
+                    pop_seven(&mut stack);
+            }
+
+            // RETURN
+            0xf3 => {
+                let (offset, size) = pop_two(&mut stack);
+                let offset = offset.as_usize();
+                let size = size.as_usize();
+                ret = Some(hex::encode(&memory[offset..offset + size]));
+            }
+
+            // REVERT
+            0xfd => {
+                let (offset, size) = pop_two(&mut stack);
+                let offset = offset.as_usize();
+                let size = size.as_usize();
+                ret = Some(hex::encode(&memory[offset..offset + size]));
+                success = Some(false);
+            }
+
             // INVALID
             0xfe => {
                 success = Some(false);
@@ -779,6 +804,7 @@ pub fn evm(
     EvmResult {
         stack: stack.into(),
         success: success.unwrap_or(true),
+        ret,
     }
 }
 
@@ -805,4 +831,15 @@ fn pop_four(stack: &mut VecDeque<U256>) -> (U256, U256, U256, U256) {
     let c = stack.pop_front().expect("error: stack less than 3 values");
     let d = stack.pop_front().expect("error: stack less than 3 values");
     (a, b, c, d)
+}
+
+fn pop_seven(stack: &mut VecDeque<U256>) -> (U256, U256, U256, U256, U256, U256, U256) {
+    let a = stack.pop_front().expect("error: stack less than 1 values");
+    let b = stack.pop_front().expect("error: stack less than 2 values");
+    let c = stack.pop_front().expect("error: stack less than 3 values");
+    let d = stack.pop_front().expect("error: stack less than 4 values");
+    let e = stack.pop_front().expect("error: stack less than 5 values");
+    let f = stack.pop_front().expect("error: stack less than 6 values");
+    let g = stack.pop_front().expect("error: stack less than 7 values");
+    (a, b, c, d, e, f, g)
 }

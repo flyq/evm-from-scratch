@@ -31,8 +31,8 @@ struct Evmtest {
 struct Expect {
     stack: Option<Vec<String>>,
     success: bool,
-    // #[serde(rename = "return")]
-    // ret: Option<String>,
+    #[serde(rename = "return")]
+    ret: Option<String>,
 }
 
 fn main() {
@@ -64,6 +64,8 @@ fn main() {
                 }
             }
         }
+
+        assert_eq!(result.ret, test.expect.ret);
 
         matching = matching && result.success == test.expect.success;
 
